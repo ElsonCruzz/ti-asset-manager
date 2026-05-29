@@ -82,6 +82,7 @@ if menu == "📊 Dashboard Geral" and not df_empresas_ativas.empty:
         empresa_selecionada_id = df_empresas_ativas[df_empresas_ativas["nome_fantasia"] == opcao_filtro]["id"].values[0]
 
 # --- MENU 1: DASHBOARD GERAL (MELHORADO) ---
+# --- MENU 1: DASHBOARD GERAL (COM FILTROS AVANÇADOS) ---
 if menu == "📊 Dashboard Geral":
     st.title("📊 Dashboard Geral de Infraestrutura")
     st.caption(f"Visualizando escopo: **{opcao_filtro}**")
@@ -92,43 +93,79 @@ if menu == "📊 Dashboard Geral":
     if df_ativos.empty:
         st.info("Nenhum equipamento cadastrado neste escopo. Vá até a aba de cadastros para começar!")
     else:
-        # Tratamento de datas
-        df_ativos["fim_garantia"] = pd.to_datetime(df_ativos["fim_garantia"])
-        hoje = pd.Timestamp.now().normalize()
+        # --- NOVO BLOCO: FILTROS AVANÇADOS NA TELA ---
+        st.markdown("### 🔍 Filtros Avançados")
+        col_f1, col_f2 = st.columns(2)
         
-        # KPIs Existentes
-        total_ativos = len(df_ativos)
-        em_producao = len(df_ativos[df_ativos["status"] == "Em Produção"])
-        garantias_vencidas = len(df_ativos[df_ativos["fim_garantia"] < hoje])
+        with col_f1:
+            # Lista os tipos únicos presentes no banco para aquele cliente
+            tipos_disponiveis = sorted(df_ativos["tipo"].unique().tolist())
+            tipos_selecionados = st.multiselect(
+                "Filtrar por Tipo de Equipamento:", 
+                options=tipos_disponiveis,
+                placeholder="Todos os tipos"
+            )
+            
+        with col_f2:
+            # Lista os status únicos presentes no banco para aquele cliente
+            status_disponiveis = sorted(df_ativos["status"].unique().tolist())
+            status_selecionados = st.multiselect(
+                "Filtrar por Status Operacional:", 
+                options=status_disponiveis,
+                placeholder="Todos os status"
+            )
         
-        # MELHORIA: Nova Métrica - Equipamentos obsoletos ou críticos cadastrados há mais de 5 anos
-        df_ativos["data_compra"] = pd.to_datetime(df_ativos["data_compra"])
-        limite_obsolescencia = hoje - pd.DateOffset(years=5)
-        equipamentos_antigos = len(df_ativos[df_ativos["data_compra"] < limite_obsolescencia])
+        # Aplicação dinâmica dos filtros no DataFrame em memória
+        df_filtrado = df_ativos.copy()
         
-        # Layout de 4 colunas atualizado com a melhoria técnica
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total de Ativos", total_ativos)
-        col2.metric("Em Produção", em_producao)
-        col3.metric("🚨 Garantias Vencidas", garantias_vencidas, delta=f"{garantias_vencidas} pendente(s)" if garantias_vencidas > 0 else None, delta_color="inverse")
-        col4.metric("⚠️ Ciclo Crítico (>5 anos)", equipamentos_antigos, delta="Substituição Recomendada" if equipamentos_antigos > 0 else None, delta_color="off")
-        
-        st.markdown("---")
-        
-        # Gráficos
-        cg1, cg2 = st.columns(2)
-        with cg1:
-            st.write("#### Equipamentos por Tipo")
-            st.bar_chart(df_ativos["tipo"].value_counts())
-        with cg2:
-            st.write("#### Status dos Ativos")
-            st.bar_chart(df_ativos["status"].value_counts())
+        if tipos_selecionados:
+            df_filtrado = df_filtrado[df_filtrado["tipo"].isin(tipos_selecionados)]
+            
+        if status_selecionados:
+            df_filtrado = df_filtrado[df_filtrado["status"].isin(status_selecionados)]
             
         st.markdown("---")
-        st.write("#### 📋 Inventário Atualizado")
-        df_exibicao = df_ativos.copy()
-        df_exibicao["fim_garantia"] = df_exibicao["fim_garantia"].dt.strftime('%d/%m/%Y')
-        df_exibicao["data_compra"] = df_exibicao["data_compra"].dt.strftime('%d/%m/%Y')
-        st.dataframe(df_exibicao, use_container_width=True)
-
-# [Manter o restante do arquivo igual: menus 2 e 3 de cadastros]
+        
+        # Se os filtros zerarem o resultado, exibe um aviso amigável
+        if df_filtrado.empty:
+            st.warning("Nenhum ativo corresponde aos filtros selecionados acima.")
+        else:
+            # Tratamento de datas baseado no DataFrame já filtrado
+            df_filtrado["fim_garantia"] = pd.to_datetime(df_filtrado["fim_garantia"])
+            df_filtrado["data_compra"] = pd.to_datetime(df_filtrado["data_compra"])
+            hoje = pd.Timestamp.now().normalize()
+            
+            # KPIs recalculados dinamicamente
+            total_ativos = len(df_filtrado)
+            em_producao = len(df_filtrado[df_filtrado["status"] == "Em Produção"])
+            garantias_vencidas = len(df_filtrado[df_filtrado["fim_garantia"] < hoje])
+            
+            limite_obsolescencia = hoje - pd.DateOffset(years=5)
+            equipamentos_antigos = len(df_filtrado[df_filtrado["data_compra"] < limite_obsolescencia])
+            
+            # Exibição dos KPIs atualizados
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Ativos Filtrados", total_ativos)
+            col2.metric("Em Produção", em_producao)
+            col3.metric("🚨 Garantias Vencidas", garantias_vencidas, delta=f"{garantias_vencidas} pendente(s)" if garantias_vencidas > 0 else None, delta_color="inverse")
+            col4.metric("⚠️ Ciclo Crítico (>5 anos)", equipamentos_antigos, delta="Substituição Recomendada" if equipamentos_antigos > 0 else None, delta_color="off")
+            
+            st.markdown("---")
+            
+            # Gráficos baseados nos dados filtrados
+            cg1, cg2 = st.columns(2)
+            with cg1:
+                st.write("#### Equipamentos por Tipo")
+                st.bar_chart(df_filtrado["tipo"].value_counts())
+            with cg2:
+                st.write("#### Status dos Ativos")
+                st.bar_chart(df_filtrado["status"].value_counts())
+                
+            st.markdown("---")
+            st.write("#### 📋 Inventário Filtrado")
+            
+            # Formatação final para exibição limpa da tabela
+            df_exibicao = df_filtrado.copy()
+            df_exibicao["fim_garantia"] = df_exibicao["fim_garantia"].dt.strftime('%d/%m/%Y')
+            df_exibicao["data_compra"] = df_exibicao["data_compra"].dt.strftime('%d/%m/%Y')
+            st.dataframe(df_exibicao, use_container_width=True)
